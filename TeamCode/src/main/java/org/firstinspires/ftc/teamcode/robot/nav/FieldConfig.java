@@ -23,6 +23,13 @@ public final class FieldConfig {
 
     // --- Field geometry ---
     public static final double FIELD_SIZE = 144.0;
+    /**
+     * Field-frame coordinate of the field's own (0,0) origin corner, in this class's coordinate
+     * system. 0 for the real robot (bottom-left-origin Pedro convention: field spans [0,144]).
+     * Some simulators (e.g. virtual_robot) use a center-origin frame instead: set this to
+     * -FIELD_SIZE/2 so the field spans [-72,72] and NavGeometry's bounds math still works unchanged.
+     */
+    public static double FIELD_MIN = 0.0;
     /** Keep the robot center at least this far from any wall when picking poses. */
     public static double WALL_MARGIN = 10.0;
 
@@ -48,7 +55,8 @@ public final class FieldConfig {
 
     /** Mirror a pose across field center for the opposite alliance. */
     public static Pose mirror(Pose p) {
-        return new Pose(FIELD_SIZE - p.getX(), FIELD_SIZE - p.getY(), p.getHeading() + Math.PI);
+        double far = 2 * FIELD_MIN + FIELD_SIZE;
+        return new Pose(far - p.getX(), far - p.getY(), p.getHeading() + Math.PI);
     }
 
     /** Heading that points the launcher at the goal from the given (x, y). */

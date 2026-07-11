@@ -198,19 +198,22 @@ public final class NavGeometry {
     }
 
     public static boolean inBounds(double x, double y) {
-        double m = FieldConfig.WALL_MARGIN;
-        return x >= m && x <= FieldConfig.FIELD_SIZE - m
-                && y >= m && y <= FieldConfig.FIELD_SIZE - m;
+        double lo = FieldConfig.FIELD_MIN + FieldConfig.WALL_MARGIN;
+        double hi = FieldConfig.FIELD_MIN + FieldConfig.FIELD_SIZE - FieldConfig.WALL_MARGIN;
+        return x >= lo && x <= hi && y >= lo && y <= hi;
     }
 
     private static double clampInBounds(double v) {
-        return Math.max(FieldConfig.WALL_MARGIN,
-                Math.min(FieldConfig.FIELD_SIZE - FieldConfig.WALL_MARGIN, v));
+        double lo = FieldConfig.FIELD_MIN + FieldConfig.WALL_MARGIN;
+        double hi = FieldConfig.FIELD_MIN + FieldConfig.FIELD_SIZE - FieldConfig.WALL_MARGIN;
+        return Math.max(lo, Math.min(hi, v));
     }
 
     /** Clamp to the physical field (control points may sit outside the wall margin). */
     private static double clampAxis(double v) {
-        return Math.max(2.0, Math.min(FieldConfig.FIELD_SIZE - 2.0, v));
+        double lo = FieldConfig.FIELD_MIN + 2.0;
+        double hi = FieldConfig.FIELD_MIN + FieldConfig.FIELD_SIZE - 2.0;
+        return Math.max(lo, Math.min(hi, v));
     }
 
     public static double dist(double x1, double y1, double x2, double y2) {

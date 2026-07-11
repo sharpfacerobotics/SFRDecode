@@ -36,8 +36,8 @@ public class AutoPositioner {
     // --- Tuning ---
     public static double POS_TOLERANCE   = 2.5;   // in, "close enough" to the scoring pose
     public static double HEAD_TOLERANCE  = Math.toRadians(4);
-    public static double REPLAN_PERIOD   = 0.30;  // s, background re-plan cadence (avoids jitter)
-    public static double REPLAN_POSE_DELTA = 4.0; // in, re-plan if the chosen scoring pose shifts this far
+    public static double REPLAN_PERIOD   = 1.2;   // s, background re-plan cadence (avoids jitter)
+    public static double REPLAN_POSE_DELTA = 8.0; // in, re-plan if the chosen scoring pose shifts this far
     public static double LOOKAHEAD       = 0.6;   // s, collision prediction window
     public static double HARD_RADIUS     = 8.0;   // in, extra buffer that triggers a reactive dodge
     public static double ESCAPE_DIST     = 16.0;  // in, how far a dodge moves us
@@ -127,16 +127,22 @@ public class AutoPositioner {
             return;
         }
 
-        // (4) (Re)plan the spline when the target moved, our lane got blocked, or the timer elapsed.
+        // (4) (Re)plan the spline when the target moved or the cadence timer elapsed.
+        //
+        // NOTE: we deliberately do NOT replan just because the straight line robot->target is
+        // "blocked" — once avoidance is active we're intentionally following a curve around that
+        // exact obstacle, so the straight line is SUPPOSED to stay blocked until we arrive. Firing
+        // a replan on that condition was self-defeating: it fired almost every loop, restarting a
+        // fresh curve from the current (barely-progressed) pose each time, so the follower never
+        // accumulated real velocity and the robot stalled just short of the target. A moved/new
+        // obstacle is instead picked up on the next cadence tick (planTo() recomputes the bow),
+        // and anything urgent is caught immediately by the reactive EVADING layer above.
         boolean targetMoved = plannedTarget == null
                 || NavGeometry.dist(plannedTarget.getX(), plannedTarget.getY(),
                                     scoring.getX(), scoring.getY()) > REPLAN_POSE_DELTA;
-        boolean laneBlocked = plannedTarget != null && NavGeometry.segmentBlocked(
-                robot.getX(), robot.getY(), plannedTarget.getX(), plannedTarget.getY(),
-                obs, FieldConfig.SAFETY_MARGIN);
         boolean cadence = replanTimer.seconds() > REPLAN_PERIOD;
 
-        if (targetMoved || laneBlocked || cadence || holdingScoring) {
+        if (targetMoved || cadence || holdingScoring) {
             planTo(robot, obs);
             replanTimer.reset();
         }
