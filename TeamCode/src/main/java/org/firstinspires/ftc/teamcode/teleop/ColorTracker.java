@@ -1,4 +1,4 @@
-package org.firstinspires.ftc.teamcode;
+package org.firstinspires.ftc.teamcode.teleop;
 
 import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
@@ -17,8 +17,7 @@ public class ColorTracker extends LinearOpMode {
     private DcMotor frontLeftDrive, backLeftDrive, frontRightDrive, backRightDrive;
     private DcMotor launchMotor, transferMotor, intakeMotor;
     private Servo trigger;
-    private Limelight3A limelightColor;     // color detection  (pipelines 3 & 4)
-    private Limelight3A limelightAprilTag;  // AprilTag detection (pipeline 0)
+    private Limelight3A limelight;          // single camera, color pipelines 3 & 4
 
     // ── Pattern ───────────────────────────────────────────────────────────────
     private char[] pattern = {'P', 'P', 'P'};
@@ -37,9 +36,8 @@ public class ColorTracker extends LinearOpMode {
     private static final double SEARCH_SPIN_POWER   = 0.25;
 
     // ── Pipeline mappings ─────────────────────────────────────────────────────
-    private static final int PURPLE_PIPELINE   = 3;
-    private static final int GREEN_PIPELINE    = 4;
-    private static final int APRILTAG_PIPELINE = 0;   // limelight_apriltag pipeline
+    private static final int PURPLE_PIPELINE = 3;
+    private static final int GREEN_PIPELINE  = 4;
 
     // ── Shooter constants ─────────────────────────────────────────────────────
     public static double LAUNCH_POWER      = 0.71;
@@ -48,9 +46,18 @@ public class ColorTracker extends LinearOpMode {
     public static double SPIN_UP_TIME      = 0.5;
     public static int    SHOTS_PER_COLOR   = 1;
 
+    // Per-shot cycle timing (seconds)
+    public static double SHOT_WAIT_TIME  = 0.4;
+    public static double SHOT_FEED_TIME  = 0.5;
+    public static double SHOT_FIRE_TIME  = 0.2;
+    public static double SHOT_RESET_TIME = 0.15;
+
     // ── Shooting state ────────────────────────────────────────────────────────
+    private enum ShootState { WAITING, FEEDING, FIRING, RESETTING }
+    private ShootState  shootState = ShootState.WAITING;
     private int         shotsFired = 0;
-    private ElapsedTime shootTimer = new ElapsedTime();
+    private ElapsedTime shootTimer      = new ElapsedTime();  // spin-up
+    private ElapsedTime shootCycleTimer = new ElapsedTime();  // per-phase
 
     // ─────────────────────────────────────────────────────────────────────────
 
@@ -67,8 +74,7 @@ public class ColorTracker extends LinearOpMode {
         intakeMotor     = hardwareMap.get(DcMotor.class, "intake_motor");
         trigger         = hardwareMap.get(Servo.class,   "Trigger");
 
-        limelightColor    = hardwareMap.get(Limelight3A.class, "limelight_color");
-        limelightAprilTag = hardwareMap.get(Limelight3A.class, "limelight_apriltag");
+        limelight = hardwareMap.get(Limelight3A.class, "limelight");
 
         frontLeftDrive.setDirection(DcMotor.Direction.REVERSE);
         backLeftDrive.setDirection(DcMotor.Direction.REVERSE);
@@ -118,21 +124,15 @@ public class ColorTracker extends LinearOpMode {
             telemetry.update();
         }
 
-        // ── Start both Limelights ─────────────────────────────────────────────
-        limelightColor.start();
-        limelightAprilTag.start();
-        limelightAprilTag.pipelineSwitch(APRILTAG_PIPELINE);   // fixed — always pipeline 0
-        switchPipelineToCurrentColor();                         // sets limelightColor pipeline
+        // ── Start the Limelight on the first color's pipeline ─────────────────
+        limelight.start();
+        switchPipelineToCurrentColor();
 
         // ── Main loop ─────────────────────────────────────────────────────────
         while (opModeIsActive()) {
 
-            // Poll both cameras every loop
-            LLResult colorResult    = limelightColor.getLatestResult();
-            LLResult aprilTagResult = limelightAprilTag.getLatestResult();
-
-            boolean colorVisible    = colorResult    != null && colorResult.isValid();
-            boolean aprilTagVisible = aprilTagResult != null && aprilTagResult.isValid();
+            LLResult colorResult = limelight.getLatestResult();
+            boolean colorVisible = colorResult != null && colorResult.isValid();
 
             switch (state) {
 
@@ -140,22 +140,16 @@ public class ColorTracker extends LinearOpMode {
                 case FOLLOWING:
                     followColor(colorResult, colorVisible);
 
-                    // Arrival condition: color area large enough OR an AprilTag
-                    // is detected close enough (ta >= threshold on the AT camera)
-                    boolean arrivedByColor    = colorVisible
-                            && colorResult.getTa() >= STOP_AREA_THRESHOLD;
-                    boolean arrivedByAprilTag = aprilTagVisible
-                            && aprilTagResult.getTa() >= STOP_AREA_THRESHOLD;
-
-                    if (arrivedByColor || arrivedByAprilTag) {
+                    // Arrival condition: color area large enough
+                    if (colorVisible && colorResult.getTa() >= STOP_AREA_THRESHOLD) {
                         stopDrive();
                         shotsFired = 0;
+                        shootState = ShootState.WAITING;
                         shootTimer.reset();
+                        shootCycleTimer.reset();
                         launchMotor.setPower(LAUNCH_POWER);
                         state = TrackerState.SHOOTING;
-                        telemetry.addData("Status", "Arrived ("
-                                + (arrivedByAprilTag ? "AprilTag" : "color area")
-                                + ") — starting shoot sequence");
+                        telemetry.addData("Status", "Arrived — starting shoot sequence");
                     }
                     break;
 
@@ -176,7 +170,6 @@ public class ColorTracker extends LinearOpMode {
                             state = TrackerState.DONE;
                         } else {
                             switchPipelineToCurrentColor();
-                            shootTimer.reset();
                             state = TrackerState.FOLLOWING;
                         }
                     }
@@ -198,36 +191,22 @@ public class ColorTracker extends LinearOpMode {
             telemetry.addData("Progress", currentColorIndex + " / " + PATTERN_LENGTH);
             telemetry.addData("Shots",    shotsFired + " / " + SHOTS_PER_COLOR);
 
-            // Color camera
             if (colorVisible) {
-                telemetry.addData("[Color cam] TX",   "%.2f°",  colorResult.getTx());
-                telemetry.addData("[Color cam] Area",  "%.2f%%", colorResult.getTa());
+                telemetry.addData("[Limelight] TX",   "%.2f°",  colorResult.getTx());
+                telemetry.addData("[Limelight] Area", "%.2f%%", colorResult.getTa());
             } else {
-                telemetry.addData("[Color cam]", "No target");
+                telemetry.addData("[Limelight]", "No target");
             }
 
-            // AprilTag camera
-            if (aprilTagVisible) {
-                telemetry.addData("[AprilTag cam] TX",  "%.2f°",  aprilTagResult.getTx());
-                telemetry.addData("[AprilTag cam] Area", "%.2f%%", aprilTagResult.getTa());
-                // If the result carries a fiducial ID, display it
-                if (!aprilTagResult.getFiducialResults().isEmpty()) {
-                    telemetry.addData("[AprilTag cam] ID",
-                            aprilTagResult.getFiducialResults().get(0).getFiducialId());
-                }
-            } else {
-                telemetry.addData("[AprilTag cam]", "No tag");
-            }
-
-            telemetry.addData("Controls", "LB = manual override");
+            telemetry.addData("Controls", "LB = manual override (while following)");
             telemetry.update();
         }
 
         // Safe stop
         stopDrive();
         launchMotor.setPower(0);
-        limelightColor.stop();
-        limelightAprilTag.stop();
+        transferMotor.setPower(0);
+        limelight.stop();
     }
 
     // ── Follow the current color target ───────────────────────────────────────
@@ -279,41 +258,59 @@ public class ColorTracker extends LinearOpMode {
 
     // ── Fire one ball ─────────────────────────────────────────────────────────
     private void shootOneShot() {
-        double elapsed     = shootTimer.seconds();
-
-        if (elapsed < SPIN_UP_TIME) {
-            telemetry.addData("Shoot", "Spinning up (%.2fs)", elapsed);
+        if (shootTimer.seconds() < SPIN_UP_TIME) {
+            shootCycleTimer.reset();
+            telemetry.addData("Shoot", "Spinning up (%.2fs)", shootTimer.seconds());
             return;
         }
 
-        double cycleElapsed = elapsed - SPIN_UP_TIME;
-        double cycleTime    = cycleElapsed % 1.3;
+        double elapsed = shootCycleTimer.seconds();
 
-        if (cycleTime <= 0.4) {
-            telemetry.addData("Shoot", "Waiting — shot " + (shotsFired + 1));
-        } else if (cycleTime < 0.9) {
-            transferMotor.setPower(1);
-            telemetry.addData("Shoot", "Feeding — shot " + (shotsFired + 1));
-        } else if (cycleTime < 1.1) {
-            trigger.setPosition(TRIGGER_SHOOT_POS);
-            transferMotor.setPower(0);
-            telemetry.addData("Shoot", "Firing — shot " + (shotsFired + 1));
-        } else if (cycleTime < 1.25) {
-            trigger.setPosition(TRIGGER_START_POS);
-            telemetry.addData("Shoot", "Resetting — shot " + (shotsFired + 1));
-        } else {
-            if (cycleElapsed >= (shotsFired + 1) * 1.3) {
-                shotsFired++;
-                telemetry.addData("Shoot", "Shot " + shotsFired + " confirmed");
-            }
+        switch (shootState) {
+            case WAITING:
+                telemetry.addData("Shoot", "Waiting — shot " + (shotsFired + 1));
+                if (elapsed >= SHOT_WAIT_TIME) {
+                    shootState = ShootState.FEEDING;
+                    shootCycleTimer.reset();
+                }
+                break;
+
+            case FEEDING:
+                transferMotor.setPower(1);
+                telemetry.addData("Shoot", "Feeding — shot " + (shotsFired + 1));
+                if (elapsed >= SHOT_FEED_TIME) {
+                    shootState = ShootState.FIRING;
+                    shootCycleTimer.reset();
+                }
+                break;
+
+            case FIRING:
+                trigger.setPosition(TRIGGER_SHOOT_POS);
+                transferMotor.setPower(0);
+                telemetry.addData("Shoot", "Firing — shot " + (shotsFired + 1));
+                if (elapsed >= SHOT_FIRE_TIME) {
+                    shootState = ShootState.RESETTING;
+                    shootCycleTimer.reset();
+                }
+                break;
+
+            case RESETTING:
+                trigger.setPosition(TRIGGER_START_POS);
+                telemetry.addData("Shoot", "Resetting — shot " + (shotsFired + 1));
+                if (elapsed >= SHOT_RESET_TIME) {
+                    shotsFired++;
+                    shootState = ShootState.WAITING;
+                    shootCycleTimer.reset();
+                }
+                break;
         }
     }
 
-    // ── Switch limelightColor to the pipeline for the current pattern slot ────
+    // ── Switch the Limelight to the pipeline for the current pattern slot ─────
     private void switchPipelineToCurrentColor() {
         if (currentColorIndex >= PATTERN_LENGTH) return;
         int pipeline = (pattern[currentColorIndex] == 'P') ? PURPLE_PIPELINE : GREEN_PIPELINE;
-        limelightColor.pipelineSwitch(pipeline);
+        limelight.pipelineSwitch(pipeline);
     }
 
     private String colorName(char c) { return c == 'P' ? "Purple" : "Green"; }
