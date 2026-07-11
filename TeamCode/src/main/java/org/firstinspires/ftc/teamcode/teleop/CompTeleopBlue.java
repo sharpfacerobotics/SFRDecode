@@ -29,7 +29,6 @@
 
 package org.firstinspires.ftc.teamcode.teleop;
 
-import static org.firstinspires.ftc.teamcode.pedroPathing.Tuning.follower;
 import static org.firstinspires.ftc.teamcode.robot.Launcher.TRIGGER_START_POS;
 
 import com.bylazar.configurables.annotations.Configurable;
@@ -44,6 +43,12 @@ import org.firstinspires.ftc.teamcode.robot.PoseStorage;
 import org.firstinspires.ftc.teamcode.robot.RobotHardware;
 import org.firstinspires.ftc.teamcode.robot.Drivetrain;
 import org.firstinspires.ftc.teamcode.robot.Vision;
+import org.firstinspires.ftc.teamcode.robot.nav.AutoPositioner;
+import org.firstinspires.ftc.teamcode.robot.nav.FieldConfig;
+import org.firstinspires.ftc.teamcode.robot.nav.GoalLocator;
+import org.firstinspires.ftc.teamcode.robot.nav.LimelightObstacleSource;
+import org.firstinspires.ftc.teamcode.robot.nav.MockObstacleSource;
+import org.firstinspires.ftc.teamcode.robot.nav.ObstacleSource;
 
 @TeleOp(name="CompTeleopBlue", group="Linear OpMode")
 @Configurable
@@ -56,6 +61,13 @@ public class CompTeleopBlue extends LinearOpMode {
     private Launcher launcher = null;
     private Drivetrain drivetrain = null;
     private Vision vision = null;
+
+    // Auto-positioner: live-replanned spline to the best scoring pose, with obstacle dodging.
+    // Obstacle feed defaults to none (no sensing hardware yet); flip the flags to demo/enable.
+    public static boolean USE_MOCK_OBSTACLES      = false;
+    public static boolean USE_LIMELIGHT_OBSTACLES = false;
+    private AutoPositioner autoPositioner = null;
+    private GoalLocator goalLocator = null;
 
     public static double PUSH_START_POS = 0;
 
@@ -75,6 +87,12 @@ public class CompTeleopBlue extends LinearOpMode {
     private void setAutoDriveState(AutoDriveState newState) {
         autoDriveState = newState;
         autoDriveTimer.reset();
+    }
+
+    /** Start a positioner-driven shoot leg (sets autoDriving so joystick-cancel still works). */
+    private void engagePositioner() {
+        autoPositioner.engage();
+        drivetrain.autoDriving = true;
     }
     private double autoDriveTime = 5.5;
     private double lockOnTime = 2.0;
@@ -102,6 +120,18 @@ public class CompTeleopBlue extends LinearOpMode {
         vision = new Vision(robot);
         vision.init();
 
+        ObstacleSource obstacleSource;
+        if (USE_LIMELIGHT_OBSTACLES) {
+            obstacleSource = new LimelightObstacleSource(robot.limelight,
+                    () -> drivetrain.follower.getPose());
+        } else {
+            MockObstacleSource mock = new MockObstacleSource();
+            mock.setEnabled(USE_MOCK_OBSTACLES);
+            obstacleSource = mock;
+        }
+        goalLocator = new GoalLocator(FieldConfig.BLUE_GOAL);
+        autoPositioner = new AutoPositioner(drivetrain.follower, obstacleSource, FieldConfig.BLUE_GOAL);
+        autoPositioner.setGoalLocator(goalLocator);
 
         // Wait for the game to start (driver presses START)
         telemetry.addData("Status: ", "Initialized");
@@ -115,7 +145,7 @@ public class CompTeleopBlue extends LinearOpMode {
         telemetry.update();
 
         // Tell Pedro to start exactly where Auto finished
-        follower.setStartingPose(PoseStorage.currentPose);
+        drivetrain.follower.setStartingPose(PoseStorage.currentPose);
 
 
         while (!isStarted()) {
@@ -145,25 +175,33 @@ public class CompTeleopBlue extends LinearOpMode {
             LLResult result = vision.update();
             double distance = vision.getDistance();
             double voltage = robot.myControlHubVoltageSensor.getVoltage();
+
+            // Live goal calibration: refine the goal position whenever its tag is in view.
+            if (result != null && result.isValid()) {
+                goalLocator.update(drivetrain.follower.getPose(), result.getTx(), distance);
+            }
+
             if (result == null || !result.isValid()) {
                 telemetry.addLine("Not Locked On");
             } else {
                 telemetry.addLine("Locked On");
             }
 
-            // Start auto drive on button press
+            // Start auto drive on button press. The shoot leg is driven by the AutoPositioner
+            // (live-chosen scoring pose, spline replanning, obstacle dodging); A/B still select
+            // which INTAKE pose the loop uses afterwards.
             if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && !gamepad1.a && !gamepad1.b) {
-                drivetrain.startAutoDrive(drivetrain.CLOSE_BLUE_SHOOT_POSE);
+                engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
             } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && gamepad1.a && !gamepad1.b) {
-                drivetrain.startAutoDrive(drivetrain.FAR_BLUE_SHOOT_POSE);
+                engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
             } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && !gamepad1.a && gamepad1.b) {
-                drivetrain.startAutoDrive(drivetrain.CLOSE_BLUE_SHOOT_POSE);
+                engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                 loopWantedClose = true;
             } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && gamepad1.a && gamepad1.b) {
-                drivetrain.startAutoDrive(drivetrain.FAR_BLUE_SHOOT_POSE);
+                engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                 loopWantedFar = true;
             }
@@ -172,6 +210,7 @@ public class CompTeleopBlue extends LinearOpMode {
             if (drivetrain.autoDriving && (Math.abs(gamepad1.left_stick_y) > 0.1 ||
                     Math.abs(gamepad1.left_stick_x) > 0.1 ||
                     Math.abs(gamepad1.right_stick_x) > 0.1)) {
+                autoPositioner.disengage();
                 drivetrain.cancelAutoDrive();
                 setAutoDriveState(AutoDriveState.MANUAL);
                 loopWantedClose = false;
@@ -191,13 +230,16 @@ public class CompTeleopBlue extends LinearOpMode {
                     break;
 
                 case DRIVING_TO_SHOOT:
-                    telemetry.addLine("Following Path");
-                    if (!drivetrain.follower.isBusy()) {
+                    autoPositioner.update();
+                    telemetry.addLine(autoPositioner.telemetry());
+                    if (autoPositioner.isReadyToShoot()) {
                         telemetry.addLine("Arrived");
+                        autoPositioner.disengage();   // freeze; LOCKING_ON takes over aiming
                         setAutoDriveState(AutoDriveState.LOCKING_ON);
                     }
                     if (autoDriveTimer.seconds() > autoDriveTime) {
                         telemetry.addLine("Auto Drive Timeout");
+                        autoPositioner.disengage();
                         setAutoDriveState(AutoDriveState.MANUAL);
                         drivetrain.cancelAutoDrive();
                     }
@@ -266,11 +308,7 @@ public class CompTeleopBlue extends LinearOpMode {
                     intake.update(true, false, false, false, false);
                     intake.setTransfer(false, true);
                     if (autoDriveTimer.seconds() > intakeTime) {
-                        if (loopWantedClose) {
-                            drivetrain.startAutoDrive(drivetrain.CLOSE_BLUE_SHOOT_POSE);
-                        } else if (loopWantedFar) {
-                            drivetrain.startAutoDrive(drivetrain.FAR_BLUE_SHOOT_POSE);
-                        }
+                        engagePositioner();
                         setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                     }
                     break;

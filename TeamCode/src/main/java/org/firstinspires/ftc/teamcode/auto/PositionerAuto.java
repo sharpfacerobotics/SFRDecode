@@ -10,6 +10,7 @@ import com.qualcomm.robotcore.util.Range;
 
 import org.firstinspires.ftc.teamcode.robot.nav.AutoPositioner;
 import org.firstinspires.ftc.teamcode.robot.nav.GoalLocator;
+import org.firstinspires.ftc.teamcode.robot.nav.LimelightObstacleSource;
 import org.firstinspires.ftc.teamcode.robot.nav.MockObstacleSource;
 import org.firstinspires.ftc.teamcode.robot.nav.NavGeometry;
 import org.firstinspires.ftc.teamcode.robot.nav.ObstacleSource;
@@ -34,7 +35,8 @@ import org.firstinspires.ftc.teamcode.robot.nav.ObstacleSource;
 public abstract class PositionerAuto extends BaseAuto {
 
     // --- Tunables ---
-    public static boolean USE_MOCK_OBSTACLES = false;
+    public static boolean USE_MOCK_OBSTACLES      = false;
+    public static boolean USE_LIMELIGHT_OBSTACLES = false;
     public static double POSITION_TIMEOUT      = 6.0;  // s, shoot from wherever we are after this
     public static double INTAKE_ARRIVE_TIMEOUT = 3.0;  // s, mirrors FarAuto's intake-N leg
     public static int    INTAKE_CYCLES         = 2;    // intake trips after the preload volley
@@ -53,6 +55,7 @@ public abstract class PositionerAuto extends BaseAuto {
     protected LaunchState launchState = LaunchState.WAITING;
 
     protected MockObstacleSource mockObstacles;
+    protected LimelightObstacleSource limelightObstacles;
     protected ObstacleSource obstacleSource;
     protected AutoPositioner autoPositioner;
     protected GoalLocator goalLocator;
@@ -84,7 +87,13 @@ public abstract class PositionerAuto extends BaseAuto {
 
         mockObstacles = new MockObstacleSource();
         mockObstacles.setEnabled(USE_MOCK_OBSTACLES);
-        obstacleSource = mockObstacles;
+        if (USE_LIMELIGHT_OBSTACLES) {
+            limelightObstacles = new LimelightObstacleSource(robot.limelight,
+                    () -> follower.getPose());
+            obstacleSource = limelightObstacles;
+        } else {
+            obstacleSource = mockObstacles;
+        }
 
         goalLocator = new GoalLocator(goalPose());
         autoPositioner = new AutoPositioner(follower, obstacleSource, goalPose());
@@ -108,6 +117,7 @@ public abstract class PositionerAuto extends BaseAuto {
     public void start() {
         super.start();
         mockObstacles.reset();
+        if (limelightObstacles != null) limelightObstacles.reset();
         setLaunchPower(launchPower);
         autoPositioner.engage();
         setAutoState(AutoState.POSITION_TO_SCORE);
