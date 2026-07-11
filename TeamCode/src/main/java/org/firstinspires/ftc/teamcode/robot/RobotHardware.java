@@ -39,7 +39,7 @@ public class RobotHardware {
     public void init(HardwareMap hardwareMap) {
 
         // --- Hardware Map ---
-        IMU imu = hardwareMap.get(IMU.class, "imu");
+        imu = hardwareMap.get(IMU.class, "imu");
         frontLeftDrive  = hardwareMap.get(DcMotor.class, "front_left_drive");
         backLeftDrive   = hardwareMap.get(DcMotor.class, "back_left_drive");
         frontRightDrive = hardwareMap.get(DcMotor.class, "front_right_drive");
