@@ -32,6 +32,7 @@ package org.firstinspires.ftc.teamcode.teleop;
 import static org.firstinspires.ftc.teamcode.robot.Launcher.TRIGGER_START_POS;
 
 import com.bylazar.configurables.annotations.Configurable;
+import com.pedropathing.geometry.Pose;
 import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.robotcore.eventloop.opmode.LinearOpMode;
 import com.qualcomm.robotcore.eventloop.opmode.TeleOp;
@@ -100,6 +101,7 @@ public class CompTeleopRed extends LinearOpMode {
     private double intakeTime = 2.0;
     private boolean loopWantedClose = false;
     private boolean loopWantedFar = false;
+    private boolean prevRightBumper = false;
 
 
     @Override
@@ -144,8 +146,11 @@ public class CompTeleopRed extends LinearOpMode {
         telemetry.addData("Status", "Waiting for limelight...");
         telemetry.update();
 
-        // Tell Pedro to start exactly where Auto finished
-        drivetrain.follower.setStartingPose(PoseStorage.currentPose);
+        // Tell Pedro to start exactly where Auto finished. currentPose is null unless an Auto ran
+        // first, so fall back to field center to avoid feeding null into the follower on a
+        // standalone teleop start.
+        drivetrain.follower.setStartingPose(
+                PoseStorage.currentPose != null ? PoseStorage.currentPose : new Pose(72, 72, 0));
 
 
         while (!isStarted()) {
@@ -158,7 +163,7 @@ public class CompTeleopRed extends LinearOpMode {
                 telemetry.addData("Status", "No tag visible - aim at AprilTag");
             }
             telemetry.update();
-            if (result != null && result.isValid()) {
+            if (result != null && result.isValid() && result.getBotpose_MT2() != null) {
                 telemetry.addData("PedroX from Limelight: ", "%.1f", vision.limelightToPedroPose(result.getBotpose_MT2(), true)[0]);
                 telemetry.addData("PedroY from Limelight: ", "%.1f", vision.limelightToPedroPose(result.getBotpose_MT2(), true)[1]);
                 telemetry.addData("Pedro Heading from Limelight: ", "%.1f", vision.limelightToPedroPose(result.getBotpose_MT2(), true)[2]);
@@ -190,17 +195,23 @@ public class CompTeleopRed extends LinearOpMode {
             // Start auto drive on button press. The shoot leg is driven by the AutoPositioner
             // (live-chosen scoring pose, spline replanning, obstacle dodging); A/B still select
             // which INTAKE pose the loop uses afterwards.
-            if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && !gamepad1.a && !gamepad1.b) {
+            // Edge-triggered: engage only on the rising edge of RB, so holding it (or a state
+            // timing out back to MANUAL while RB is still held) doesn't instantly re-engage.
+            boolean rbEngage = gamepad1.right_bumper && !prevRightBumper
+                    && autoDriveState == AutoDriveState.MANUAL;
+            prevRightBumper = gamepad1.right_bumper;
+
+            if (rbEngage && !gamepad1.a && !gamepad1.b) {
                 engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
-            } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && gamepad1.a && !gamepad1.b) {
+            } else if (rbEngage && gamepad1.a && !gamepad1.b) {
                 engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
-            } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && !gamepad1.a && gamepad1.b) {
+            } else if (rbEngage && !gamepad1.a && gamepad1.b) {
                 engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                 loopWantedClose = true;
-            } else if (gamepad1.right_bumper && (autoDriveState == AutoDriveState.MANUAL) && gamepad1.a && gamepad1.b) {
+            } else if (rbEngage && gamepad1.a && gamepad1.b) {
                 engagePositioner();
                 setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                 loopWantedFar = true;
@@ -252,7 +263,7 @@ public class CompTeleopRed extends LinearOpMode {
                         telemetry.addLine("Aligning");
                     } else {
                         telemetry.addLine("Locked On");
-                        if (result != null && result.isValid()) {
+                        if (result != null && result.isValid() && result.getBotpose_MT2() != null) {
                             drivetrain.follower.holdPoint(vision.limelightToPedroPose(result.getBotpose_MT2()));
                         }
                         launcher.tripleShotStarted = false;
@@ -266,7 +277,7 @@ public class CompTeleopRed extends LinearOpMode {
                     break;
 
                 case SHOOTING:
-                    if (result != null && result.isValid()) {
+                    if (result != null && result.isValid() && result.getBotpose_MT2() != null) {
                         drivetrain.follower.holdPoint(vision.limelightToPedroPose(result.getBotpose_MT2()));
                     }
                     launcher.update(0.0, true, vision.hasTarget(), distance, voltage);
@@ -308,6 +319,10 @@ public class CompTeleopRed extends LinearOpMode {
                     intake.update(true, false, false, false, false);
                     intake.setTransfer(false, true);
                     if (autoDriveTimer.seconds() > intakeTime) {
+                        // Stop the intake/transfer before the drive-back; otherwise they run
+                        // (transfer in reverse) for the whole DRIVING_TO_SHOOT/LOCKING_ON leg.
+                        robot.intakeMotor.setPower(0);
+                        robot.transferMotor.setPower(0);
                         engagePositioner();
                         setAutoDriveState(AutoDriveState.DRIVING_TO_SHOOT);
                     }

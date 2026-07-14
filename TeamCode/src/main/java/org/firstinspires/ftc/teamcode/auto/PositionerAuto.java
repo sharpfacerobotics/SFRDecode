@@ -82,8 +82,7 @@ public abstract class PositionerAuto extends BaseAuto {
 
     @Override
     public void init() {
-        super.init();
-        vision.init();   // start the Limelight on the goal-tag pipeline
+        super.init();   // BaseAuto.init() now starts the Limelight (vision.init())
 
         mockObstacles = new MockObstacleSource();
         mockObstacles.setEnabled(USE_MOCK_OBSTACLES);

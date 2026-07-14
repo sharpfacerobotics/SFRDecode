@@ -22,7 +22,7 @@ public abstract class BaseAuto extends OpMode {
     public static double spinUpTime      = 0.2;
 
     // Common state
-    protected int     shotsFired = 1;
+    protected int     shotsFired = 0;
     protected boolean isShooting = false;
 
     // Poses - subclasses set these in definePoses()
@@ -55,6 +55,7 @@ public abstract class BaseAuto extends OpMode {
         shootTimer  = new Timer();
 
         vision = new Vision(robot);
+        vision.init();   // start the Limelight so lock-on works (Far/Close autos never did this)
 
         definePoses();
         robot.Trigger.setPosition(triggerStartPos);

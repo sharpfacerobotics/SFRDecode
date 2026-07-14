@@ -18,7 +18,9 @@ public abstract class FarAuto extends BaseAuto {
     public static double launchPower23 = 0.85;
     public static double shootAngle    = 65.4;
     private static int shootNTimes = 3;
-    private static int shotCycles = 0;
+    // Instance (NOT static): a new OpMode instance is created each run, so this resets to 0 every
+    // run. As a static it persisted across back-to-back runs and made the auto end early on run 2+.
+    private int shotCycles = 0;
 
     private PathChain driveStartShootFar;
     private PathChain driveShootIntakeThree, driveIntakeThreeShoot;
@@ -81,7 +83,7 @@ public abstract class FarAuto extends BaseAuto {
                 .setLinearHeadingInterpolation(intakeN.getHeading(), shootPose.getHeading())
                 .build();
         driveShootIntakeThree = follower.pathBuilder()
-                .addPath(new BezierCurve(shootPose, controlPointToIntakeThree.mirror(), intakeThree))
+                .addPath(new BezierCurve(shootPose, controlPointToIntakeThree, intakeThree))
                 .setConstantHeadingInterpolation(intakeThree.getHeading())
                 .build();
     }
@@ -131,8 +133,15 @@ public abstract class FarAuto extends BaseAuto {
             case SHOOT_SAMPLES:
                 shootSequence();
                 if (!isShooting) {
-                    follower.followPath(driveShootIntakeN, true);
-                    setPathState(PathState.DRIVE_SHOOTPOS_INTAKE_N);
+                    // Decide DONE AFTER the volley fires (was decided in DRIVE_INTAKE_N_SHOOTPOS,
+                    // which skipped firing the last collected volley).
+                    if (shotCycles >= shootNTimes
+                            || (!skipIntakeThree() && shotCycles >= shootNTimes - 1)) {
+                        setPathState(PathState.DONE);
+                    } else {
+                        follower.followPath(driveShootIntakeN, true);
+                        setPathState(PathState.DRIVE_SHOOTPOS_INTAKE_N);
+                    }
                 }
                 break;
 
@@ -152,9 +161,7 @@ public abstract class FarAuto extends BaseAuto {
                     setPathState(PathState.SHOOT_SAMPLES);
                     shotsFired = 0;
                     ++shotCycles;
-                    if (shotCycles >= shootNTimes || (!skipIntakeThree() && shotCycles >= shootNTimes - 1)) {
-                        setPathState(PathState.DONE);
-                    }
+                    // DONE decision moved to SHOOT_SAMPLES so this collected volley actually fires.
                 }
                 break;
 

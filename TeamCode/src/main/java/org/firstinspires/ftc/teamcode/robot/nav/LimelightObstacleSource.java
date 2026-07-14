@@ -141,15 +141,22 @@ public class LimelightObstacleSource implements ObstacleSource {
             measurements.add(new double[]{ox, oy});
         }
 
-        boolean[] trackUsed = new boolean[tracks.size()];
+        // Snapshot the pre-existing track count: new tracks added below (from unmatched
+        // measurements) must NOT be association candidates for later measurements this frame,
+        // and indexing past `existing` would blow out the trackUsed array.
+        int existing = tracks.size();
+        boolean[] trackUsed = new boolean[existing];
         for (double[] m : measurements) {
             // Nearest unclaimed track inside the gate.
             int bestIdx = -1;
             double bestDist = GATE_RADIUS;
-            for (int i = 0; i < tracks.size(); i++) {
+            for (int i = 0; i < existing; i++) {
                 if (trackUsed[i]) continue;
                 Track t = tracks.get(i);
-                double d = Math.hypot(m[0] - t.x, m[1] - t.y);
+                // Gate against the track's PREDICTED position now (coasted from lastSeen), so a
+                // fast mover during a frame gap still associates instead of spawning a duplicate.
+                double coast = now - t.lastSeen;
+                double d = Math.hypot(m[0] - (t.x + t.vx * coast), m[1] - (t.y + t.vy * coast));
                 if (d < bestDist) { bestDist = d; bestIdx = i; }
             }
 

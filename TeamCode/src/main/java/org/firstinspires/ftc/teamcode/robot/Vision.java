@@ -125,8 +125,8 @@ public class Vision {
 
 
         double[] pedroDetails = new double[3];
-        pedroDetails[0] = botpose.getPosition().x;
-        pedroDetails[1] = botpose.getPosition().y;
+        pedroDetails[0] = pedroX;   // was botpose.getPosition().x (raw meters) — telemetry read wrong
+        pedroDetails[1] = pedroY;   // was botpose.getPosition().y (raw meters)
         pedroDetails[2] = pedroHeading;
         return pedroDetails;
     }

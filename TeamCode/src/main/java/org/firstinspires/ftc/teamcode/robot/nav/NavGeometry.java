@@ -60,7 +60,11 @@ public final class NavGeometry {
                 double cost = travel + turn * 6.0;
 
                 boolean poseClear = minObstacleClearance(x, y, obstacles) >= clearance;
-                boolean shotClear = !segmentBlocked(x, y, goal.getX(), goal.getY(), obstacles, 0);
+                // Use the SAME margin the AutoPositioner settle test uses (SAFETY_MARGIN); with 0
+                // here the selector could pick a pose the settle check then rejects, so the robot
+                // would drive there and never fire.
+                boolean shotClear = !segmentBlocked(x, y, goal.getX(), goal.getY(),
+                        obstacles, FieldConfig.SAFETY_MARGIN);
 
                 if (poseClear && shotClear) {
                     if (cost < bestCost) { bestCost = cost; best = cand; }
@@ -72,6 +76,22 @@ public final class NavGeometry {
         }
 
         return best != null ? best : bestBlockedFallback;
+    }
+
+    /**
+     * Is a previously-chosen scoring pose still legal (in bounds, in the shooting band, clear of
+     * obstacles, clear shot to the goal)? Used for hysteresis: keep the current target instead of
+     * re-selecting a near-tied neighbor every loop, which otherwise makes the target hop ~12" and
+     * the follower never settles/replans cleanly.
+     */
+    public static boolean isScoringPoseValid(Pose p, Pose goal, List<Obstacle> obstacles) {
+        if (p == null || !inBounds(p.getX(), p.getY())) return false;
+        double r = dist(p.getX(), p.getY(), goal.getX(), goal.getY());
+        if (r < FieldConfig.MIN_SHOOT_DISTANCE || r > FieldConfig.MAX_SHOOT_DISTANCE) return false;
+        double clearance = FieldConfig.ROBOT_RADIUS + FieldConfig.SAFETY_MARGIN;
+        if (minObstacleClearance(p.getX(), p.getY(), obstacles) < clearance) return false;
+        return !segmentBlocked(p.getX(), p.getY(), goal.getX(), goal.getY(),
+                obstacles, FieldConfig.SAFETY_MARGIN);
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -106,7 +126,11 @@ public final class NavGeometry {
         if (len < 1e-6) {
             double sx = end.getX() - start.getX(), sy = end.getY() - start.getY();
             double sl = Math.hypot(sx, sy);
-            dx = -sy / sl; dy = sx / sl;   // left-hand normal
+            if (sl < 1e-6) {
+                dx = 1; dy = 0;            // degenerate: start≈end atop the obstacle, push anywhere
+            } else {
+                dx = -sy / sl; dy = sx / sl;   // left-hand normal
+            }
         } else {
             dx /= len; dy /= len;
         }
@@ -162,7 +186,7 @@ public final class NavGeometry {
         };
 
         Pose best = null;
-        double bestClear = -1;
+        double bestClear = -Double.MAX_VALUE;   // always return a best-effort dodge, even if boxed in
         for (double[] d : dirs) {
             double x = clampInBounds(robot.getX() + d[0] * escapeDist);
             double y = clampInBounds(robot.getY() + d[1] * escapeDist);

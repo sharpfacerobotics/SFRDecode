@@ -107,10 +107,17 @@ public class AutoPositioner {
             return;   // commit to the dodge briefly so we don't oscillate
         }
 
-        // (2) Pick where to score from.
-        Pose scoring = NavGeometry.bestScoringPose(robot, goal, obs);
+        // (2) Pick where to score from. Hysteresis: keep the current target while it's still a
+        // legal scoring pose instead of re-selecting a near-tied neighbor every loop (which makes
+        // the target hop between discrete candidates and prevents the follower from settling).
+        Pose scoring = (currentScoringPose != null
+                        && NavGeometry.isScoringPoseValid(currentScoringPose, goal, obs))
+                ? currentScoringPose
+                : NavGeometry.bestScoringPose(robot, goal, obs);
         if (scoring == null) {
-            state = State.STUCK;    // nowhere valid right now; hold position, keep re-evaluating
+            if (state != State.STUCK) follower.holdPoint(robot);   // actually stop, not "keep the old path"
+            state = State.STUCK;
+            holdingScoring = false;
             return;
         }
         currentScoringPose = scoring;

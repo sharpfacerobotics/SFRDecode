@@ -15,7 +15,7 @@ public class pedroAutoCloseRed extends CloseAuto {
         intakeTwo   = new Pose(16.8,  59,     Math.toRadians(185)).mirror();
         intakeThree = new Pose(16.3,  35,     Math.toRadians(185)).mirror();
 
-        controlPointToIntakeTwo = new Pose(55.51, 54.81, Math.toRadians(185)).mirror();
-        controlPointToIntakeTwo = new Pose(90, 31.2, Math.toRadians(185)).mirror();
+        controlPointToIntakeTwo   = new Pose(55.51, 54.81, Math.toRadians(185)).mirror();
+        controlPointToIntakeThree = new Pose(90, 31.2, Math.toRadians(185)).mirror();
     }
 }

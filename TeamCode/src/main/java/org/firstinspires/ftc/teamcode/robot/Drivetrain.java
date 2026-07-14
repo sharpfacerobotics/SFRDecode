@@ -22,7 +22,7 @@ public class Drivetrain {
     public final Pose CLOSE_BLUE_INTAKE_CONTROL_POSE = new Pose(55.51, 54.81, Math.toRadians(185));
     public final Pose FAR_BLUE_SHOOT_POSE = new Pose(86.7, 20.3, Math.toRadians(shootAngle)).mirror();
     public final Pose FAR_BLUE_INTAKE_POSE = new Pose(142.58, 9.04,  Math.toRadians(0)).mirror();
-    public final Pose CLOSE_RED_SHOOT_POSE = new Pose(58.78, 84.27,  Math.toRadians(140)).mirror();
+    public final Pose CLOSE_RED_SHOOT_POSE = new Pose(58.78, 84.27,  Math.toRadians(135)).mirror();
     public final Pose CLOSE_RED_INTAKE_POSE = new Pose(16.8,  59,     Math.toRadians(185)).mirror();
     public final Pose CLOSE_RED_INTAKE_CONTROL_POSE = new Pose(55.51, 54.81, Math.toRadians(185)).mirror();
     public final Pose FAR_RED_SHOOT_POSE = new Pose(86.7, 20.3, Math.toRadians(shootAngle));
