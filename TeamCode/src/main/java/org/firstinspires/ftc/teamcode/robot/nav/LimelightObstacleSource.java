@@ -5,7 +5,6 @@ import com.qualcomm.hardware.limelightvision.LLResult;
 import com.qualcomm.hardware.limelightvision.LLResultTypes;
 import com.qualcomm.hardware.limelightvision.Limelight3A;
 import com.qualcomm.robotcore.util.ElapsedTime;
-import com.qualcomm.robotcore.util.Range;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -64,16 +63,14 @@ public class LimelightObstacleSource implements ObstacleSource {
 
     // --- Tracking ---
     public static double GATE_RADIUS    = 24.0;  // in, measurement-to-track association gate
-    public static double POS_SMOOTHING  = 0.5;   // EMA blend toward the new position (0..1)
-    public static double VEL_SMOOTHING  = 0.3;   // EMA blend toward the new velocity (0..1)
-    public static double MAX_SPEED      = 80.0;  // in/s, caps association-error spikes
     public static double MAX_COAST_TIME = 0.75;  // s, drop tracks unseen this long
-    public static double MIN_VEL_DT     = 0.02;  // s, min spacing for a velocity sample
+    // Position smoothing + velocity estimation are done by each track's Kalman filter (the
+    // prediction model); tune it via KalmanFilter2D.PROCESS_NOISE / MEASUREMENT_NOISE.
 
     private static class Track {
-        double x, y, vx, vy;
+        final KalmanFilter2D kf = new KalmanFilter2D();
         double lastSeen;
-        Track(double x, double y, double t) { this.x = x; this.y = y; this.lastSeen = t; }
+        Track(double px, double py, double t) { kf.init(px, py); lastSeen = t; }
     }
 
     private final Limelight3A limelight;
@@ -110,8 +107,9 @@ public class LimelightObstacleSource implements ObstacleSource {
             Track t = it.next();
             double coast = now - t.lastSeen;
             if (coast > MAX_COAST_TIME) { it.remove(); continue; }
-            out.add(new Obstacle(t.x + t.vx * coast, t.y + t.vy * coast,
-                    t.vx, t.vy, FieldConfig.DEFAULT_OBSTACLE_RADIUS));
+            // Emit the Kalman-predicted position at "now" (coasted from lastSeen) plus its velocity.
+            out.add(new Obstacle(t.kf.predictedX(coast), t.kf.predictedY(coast),
+                    t.kf.getVx(), t.kf.getVy(), FieldConfig.DEFAULT_OBSTACLE_RADIUS));
         }
         return out;
     }
@@ -153,10 +151,10 @@ public class LimelightObstacleSource implements ObstacleSource {
             for (int i = 0; i < existing; i++) {
                 if (trackUsed[i]) continue;
                 Track t = tracks.get(i);
-                // Gate against the track's PREDICTED position now (coasted from lastSeen), so a
-                // fast mover during a frame gap still associates instead of spawning a duplicate.
+                // Gate against the track's Kalman-predicted position now (coasted from lastSeen),
+                // so a fast mover during a frame gap still associates instead of spawning a duplicate.
                 double coast = now - t.lastSeen;
-                double d = Math.hypot(m[0] - (t.x + t.vx * coast), m[1] - (t.y + t.vy * coast));
+                double d = Math.hypot(m[0] - t.kf.predictedX(coast), m[1] - t.kf.predictedY(coast));
                 if (d < bestDist) { bestDist = d; bestIdx = i; }
             }
 
@@ -168,14 +166,7 @@ public class LimelightObstacleSource implements ObstacleSource {
             Track t = tracks.get(bestIdx);
             trackUsed[bestIdx] = true;
             double dt = now - t.lastSeen;
-            if (dt >= MIN_VEL_DT) {
-                double rvx = Range.clip((m[0] - t.x) / dt, -MAX_SPEED, MAX_SPEED);
-                double rvy = Range.clip((m[1] - t.y) / dt, -MAX_SPEED, MAX_SPEED);
-                t.vx = t.vx + VEL_SMOOTHING * (rvx - t.vx);
-                t.vy = t.vy + VEL_SMOOTHING * (rvy - t.vy);
-            }
-            t.x = t.x + POS_SMOOTHING * (m[0] - t.x);
-            t.y = t.y + POS_SMOOTHING * (m[1] - t.y);
+            t.kf.update(m[0], m[1], dt);   // Kalman predict+correct: smooths position, estimates velocity
             t.lastSeen = now;
         }
     }
