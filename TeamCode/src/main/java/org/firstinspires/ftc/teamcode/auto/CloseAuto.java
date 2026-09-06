@@ -13,36 +13,26 @@ import org.firstinspires.ftc.teamcode.robot.Vision;
 
 public abstract class CloseAuto extends BaseAuto {
 
-    // --- REUSABLE: General field positions ---
     protected Pose intakeOne, intakeTwo, intakeThree;
 
+    // Control points - override in definePoses() if red/blue differ
     protected Pose controlPointToIntakeTwo   = new Pose(55.51, 54.81, Math.toRadians(185));
     protected Pose controlPointToIntakeThree = new Pose(90, 31.2,     Math.toRadians(185));
 
-    // --- REUSABLE: Pathing sequences ---
+    private ElapsedTime launchTimer = new ElapsedTime();
+
     private PathChain driveStartShoot;
     private PathChain driveShootIntakeOne,   driveIntakeOneShoot;
     private PathChain driveShootIntakeTwo,   driveIntakeTwoShoot;
     private PathChain driveShootIntakeThree, driveIntakeThreeShoot;
 
-    /* === DECODE SPECIFIC: Shooter timings and variables ===
-    private ElapsedTime launchTimer = new ElapsedTime();
+
     protected double launchTimeoutTime = 2.0; // TIMEOUT watcher
     protected double launchWaitTime = 0.4;    // WAITING phase
     protected double launchTransferTime = 0.5; // TRANSFER phase
     protected double launchShootTime = 0.2;    // SHOOT phase
     protected double launchResetTime = 0.15;   // RESET phase
-    
-    public enum LaunchState {
-        RESET,
-        WAITING,
-        TRANSFER,
-        SHOOT
-    }
-    protected LaunchState launchState = LaunchState.WAITING;
-    */
 
-    // --- REUSABLE: State machine structures ---
     public enum PathState {
         DRIVE_STARTPOS_SHOOTPOS,
         SHOOT_PRELOAD,
@@ -52,19 +42,24 @@ public abstract class CloseAuto extends BaseAuto {
         DONE
     }
 
+    public enum LaunchState {
+        RESET,
+        WAITING,
+        TRANSFER,
+        SHOOT
+    }
+    protected LaunchState launchState = LaunchState.WAITING;
     protected boolean isTargetLocked = false;
     protected PathState pathState = PathState.DRIVE_STARTPOS_SHOOTPOS;
 
     protected void setPathState(PathState newState) {
         pathState = newState;
         pathTimer.resetTimer();
-        // isShooting = false; // DECODE SPECIFIC flag
+        isShooting = false;
     }
 
     @Override
     protected void buildPaths() {
-        // --- REUSABLE: PedroPathing curve generation ---
-        // (Note: 'shootPose' will just act as your general 'scorePose' for future seasons)
         driveStartShoot = follower.pathBuilder()
                 .addPath(new BezierLine(startPose, shootPose))
                 .setLinearHeadingInterpolation(startPose.getHeading(), shootPose.getHeading())
@@ -97,37 +92,29 @@ public abstract class CloseAuto extends BaseAuto {
 
     @Override
     protected void statePathUpdate() {
-        // --- REUSABLE: Autonomous state machine flow ---
         switch (pathState) {
             case DRIVE_STARTPOS_SHOOTPOS:
-                // if (!isShooting) {
+                if (!isShooting) {
                     follower.followPath(driveStartShoot, true);
-                    
-                    /* === DECODE SPECIFIC ===
                     setLaunchPower(launchPower);
                     robot.Trigger.setPosition(triggerStartPos);
                     isShooting = true;
-                    */
-                // }
-                if (!follower.isBusy()) { 
-                    setPathState(PathState.SHOOT_PRELOAD); 
-                    // shotsFired = 0; // DECODE SPECIFIC
                 }
+                if (!follower.isBusy()) { setPathState(PathState.SHOOT_PRELOAD); shotsFired = 0; }
                 break;
 
             case SHOOT_PRELOAD:
-                // shootSequence(); // DECODE SPECIFIC
-                
-                // --- REUSABLE: Generic condition to move to next path ---
-                // if (!isShooting) {
+                shootSequence();
+
+                if (!isShooting) {
                     setPathState(PathState.DRIVE_SHOOTPOS_INTAKEONE);
                     follower.followPath(driveShootIntakeOne, true);
-                // }
+                }
                 break;
 
             case DRIVE_SHOOTPOS_INTAKEONE:
                 if (!follower.isBusy() && pathTimer.getElapsedTimeSeconds() > 1.0) {
-                    // robot.transferMotor.setPower(-1); // DECODE SPECIFIC
+                    robot.transferMotor.setPower(-1);
                     follower.followPath(driveIntakeOneShoot, true);
                     setPathState(PathState.DRIVE_INTAKEONE_SHOOTPOS);
                 }
@@ -135,26 +122,22 @@ public abstract class CloseAuto extends BaseAuto {
 
             case DRIVE_INTAKEONE_SHOOTPOS:
                 if (!follower.isBusy()) {
-                    /* === DECODE SPECIFIC ===
-                    setLaunchPower(launchPower); 
-                    robot.transferMotor.setPower(0);
-                    shotsFired = 0;
-                    */
-                    setPathState(PathState.SHOOT_SAMPLES_1); 
+                    setLaunchPower(launchPower); robot.transferMotor.setPower(0);
+                    setPathState(PathState.SHOOT_SAMPLES_1); shotsFired = 0;
                 }
                 break;
 
             case SHOOT_SAMPLES_1:
-                // shootSequence(); // DECODE SPECIFIC
-                // if (!isShooting) {
+                shootSequence();
+                if (!isShooting) {
                     follower.followPath(driveShootIntakeTwo, true);
                     setPathState(PathState.DRIVE_SHOOTPOS_INTAKETWO);
-                // }
+                }
                 break;
 
             case DRIVE_SHOOTPOS_INTAKETWO:
                 if (!follower.isBusy() && pathTimer.getElapsedTimeSeconds() > 1.0) {
-                    // robot.transferMotor.setPower(-1); // DECODE SPECIFIC
+                    robot.transferMotor.setPower(-1);
                     follower.followPath(driveIntakeTwoShoot, true);
                     setPathState(PathState.DRIVE_INTAKETWO_SHOOTPOS);
                 }
@@ -162,27 +145,22 @@ public abstract class CloseAuto extends BaseAuto {
 
             case DRIVE_INTAKETWO_SHOOTPOS:
                 if (!follower.isBusy()) {
-                    /* === DECODE SPECIFIC ===
-                    setLaunchPower(launchPower); 
-                    robot.intakeMotor.setPower(0); 
-                    robot.transferMotor.setPower(0);
-                    shotsFired = 0;
-                    */
-                    setPathState(PathState.SHOOT_SAMPLES_2); 
+                    setLaunchPower(launchPower); robot.intakeMotor.setPower(0); robot.transferMotor.setPower(0);
+                    setPathState(PathState.SHOOT_SAMPLES_2); shotsFired = 0;
                 }
                 break;
 
             case SHOOT_SAMPLES_2:
-                // shootSequence(); // DECODE SPECIFIC
-                // if (!isShooting) {
+                shootSequence();
+                if (!isShooting) {
                     follower.followPath(driveShootIntakeThree, true);
                     setPathState(PathState.DRIVE_SHOOTPOS_INTAKETHREE);
-                // }
+                }
                 break;
 
             case DRIVE_SHOOTPOS_INTAKETHREE:
                 if (!follower.isBusy()) {
-                    // robot.transferMotor.setPower(-1); // DECODE SPECIFIC
+                    robot.transferMotor.setPower(-1);
                     follower.followPath(driveIntakeThreeShoot, true);
                     setPathState(PathState.DRIVE_INTAKETHREE_SHOOTPOS);
                 }
@@ -190,20 +168,16 @@ public abstract class CloseAuto extends BaseAuto {
 
             case DRIVE_INTAKETHREE_SHOOTPOS:
                 if (!follower.isBusy()) {
-                    /* === DECODE SPECIFIC ===
-                    setLaunchPower(launchPower); 
-                    robot.transferMotor.setPower(0);
-                    shotsFired = 0;
-                    */
-                    setPathState(PathState.SHOOT_SAMPLES_3); 
+                    setLaunchPower(launchPower); robot.transferMotor.setPower(0);
+                    setPathState(PathState.SHOOT_SAMPLES_3); shotsFired = 0;
                 }
                 break;
 
             case SHOOT_SAMPLES_3:
-                // shootSequence(); // DECODE SPECIFIC
-                // if (!isShooting) {
+                shootSequence();
+                if (!isShooting) {
                     setPathState(PathState.DONE);
-                // }
+                }
                 break;
 
             case DONE:
@@ -216,7 +190,6 @@ public abstract class CloseAuto extends BaseAuto {
         }
     }
 
-    /* === DECODE SPECIFIC: The entire shooting logic is tied to DECODE artifacts ===
     private void shootOneShot() {
         if (shotsFired >= 3) return;
 
@@ -266,16 +239,13 @@ public abstract class CloseAuto extends BaseAuto {
                 break;
 
             default:
+                // This should never happen, but recover gracefully
                 telemetry.addLine("ERROR: Unknown launchState: " + launchState);
                 launchState = LaunchState.WAITING;
                 launchTimer.reset();
                 break;
         }
     }
-    */
-
-    // --- REUSABLE: Limelight Vision Alignment ---
-    // (This calculates yaw error and adjusts the drivetrain directly. Highly reusable!)
     private void lockOn() {
         LLResult result = robot.limelight.getLatestResult();   // get vision data
         vision.setHasTarget(result != null && result.isValid());
@@ -300,19 +270,18 @@ public abstract class CloseAuto extends BaseAuto {
             robot.backLeftDrive.setPower(0);
             robot.backRightDrive.setPower(0);
             follower.resumePathFollowing();          // stop manual control
-            
-            // launchTimer.reset(); // DECODE SPECIFIC
+            launchTimer.reset();               // prepare for shooting
+
         }
     }
 
-    /* === DECODE SPECIFIC: Combination of vision and shooting sequence ===
     private void shootSequence() {
         isShooting = true;
         if (!isTargetLocked) {
             if (follower.isBusy()) {
                 follower.breakFollowing();
             }
-            lockOn(); // REUSABLE, but called inside this decode specific method
+            lockOn();
         }
         if (pathTimer.getElapsedTimeSeconds() < spinUpTime) {
             robot.intakeMotor.setPower(0);
@@ -329,5 +298,4 @@ public abstract class CloseAuto extends BaseAuto {
         isShooting = false;
         isTargetLocked = false;
     }
-    */
 }
